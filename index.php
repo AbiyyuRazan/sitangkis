@@ -2,24 +2,45 @@
 require_once __DIR__ . '/config/app.php';
 require_once __DIR__ . '/config/database.php';
 
+// FIX PERMANENT: Menghapus proteksi isLoggedIn() agar warga umum tidak terlempar ke login.php
 $pageTitle  = 'Beranda';
 $activePage = 'home';
 $db = getDB();
+$year = date('Y');
 
-$desa           = $db->query("SELECT * FROM desa_info LIMIT 1")->fetch();
-$totalAnggaran  = (int)$db->query("SELECT SUM(jumlah) FROM anggaran WHERE tahun=YEAR(NOW())")->fetchColumn();
-$totalRealisasi = (int)$db->query("SELECT SUM(jumlah) FROM realisasi WHERE YEAR(tanggal)=YEAR(NOW()) AND status='Selesai'")->fetchColumn();
+$desa = $db->query("SELECT * FROM desa_info LIMIT 1")->fetch();
+
+// SINKRONISASI MAKRO KAS PUBLIC: Total anggaran masuk hanya membaca Pagu yang sudah disetujui Kades
+$totalAnggaran  = (int)$db->query("SELECT SUM(jumlah) FROM anggaran WHERE tahun=$year AND is_validasi=1")->fetchColumn();
+$totalRealisasi = (int)$db->query("SELECT SUM(jumlah) FROM realisasi WHERE YEAR(tanggal)=$year AND status='Selesai'")->fetchColumn();
 $serapan        = $totalAnggaran > 0 ? round(($totalRealisasi/$totalAnggaran)*100,1) : 0;
 
 $recent = $db->query("SELECT * FROM realisasi WHERE is_publik=1 ORDER BY tanggal DESC LIMIT 6")->fetchAll();
 
-$barStmt = $db->prepare("SELECT a.kategori, a.jumlah AS anggaran, COALESCE(SUM(r.jumlah),0) AS realisasi
-  FROM anggaran a LEFT JOIN realisasi r ON r.kategori=a.kategori AND r.status='Selesai' AND YEAR(r.tanggal)=YEAR(NOW())
-  WHERE a.tahun=YEAR(NOW()) GROUP BY a.kategori, a.jumlah");
-$barStmt->execute();
-$barData = $barStmt->fetchAll();
+$barData = [];
+try {
+    // FIXED BUG DOUBLE KATEGORI: Menggunakan SUM(a.jumlah) dan GROUP BY murni pada a.kategori
+    $barStmt = $db->prepare(
+      "SELECT a.kategori, SUM(a.jumlah) AS anggaran, 
+       COALESCE((SELECT SUM(r.jumlah) FROM realisasi r WHERE r.kategori = a.kategori AND r.status = 'Selesai' AND YEAR(r.tanggal) = ?), 0) AS realisasi
+       FROM anggaran a
+       WHERE a.tahun=? AND a.is_validasi=1 GROUP BY a.kategori"
+    );
+    $barStmt->execute([$year, $year]);
+    $barData = $barStmt->fetchAll();
+} catch (Exception $e) {
+    $barData = [];
+}
 
-$pieRows = $db->query("SELECT sumber, jumlah FROM sumber_pendapatan WHERE tahun=YEAR(NOW())")->fetchAll();
+$pieRows = [];
+try {
+    // SINKRONISASI GRAFIK LINGKARAN BERANDA: Membaca nama program dana masuk dinamis dari database yang sudah valid
+    $pieRows = $db->prepare("SELECT nama_program AS sumber, jumlah FROM anggaran WHERE tahun=? AND is_validasi=1");
+    $pieRows->execute([$year]);
+    $pieRows = $pieRows->fetchAll();
+} catch (Exception $e) {
+    $pieRows = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -28,7 +49,6 @@ $pieRows = $db->query("SELECT sumber, jumlah FROM sumber_pendapatan WHERE tahun=
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Beranda — <?= APP_NAME ?></title>
 
-<!-- INTER GOOGLE FONT -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -46,20 +66,21 @@ body {
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #b8b8b8; /* TONE WARNA DIUBAH PERSIS SESUAI IMAGE_6885FA.PNG (PREMIUM MATTE LIGHT GREY) */
-  color: #0f172a; 
+  background: #F1E3D6; 
+  color: #ffffff; 
   min-height: 100vh;
 }
 
-/* MASTER THEME: PROFESSIONAL LIQUID GLASS (TRANSPARANSI DI ATAS BACKGROUND ABU-ABU MURNI) */
+/* MASTER THEME: ABU GLOSSY LIQUID GLASS (KHUSUS UNTUK NAVBAR BAR MENU) */
 .liquid-glass {
-  background: rgba(255, 255, 255, 0.4); 
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(85, 116, 153, 0.75); 
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: none;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 8px 24px rgba(15, 23, 42, 0.04);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.1);
   position: relative;
   overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 .liquid-glass::before {
   content: '';
@@ -68,9 +89,9 @@ body {
   border-radius: inherit;
   padding: 1px;
   background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.5) 0%, 
-    rgba(15, 23, 42, 0.02) 40%,
-    rgba(15, 23, 42, 0.06) 100%);
+    rgba(255, 255, 255, 0.4) 0%, 
+    rgba(255, 255, 255, 0.05) 40%,
+    rgba(0, 0, 0, 0.1) 100%);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -103,14 +124,13 @@ body {
   align-items: center;
   justify-content: space-between;
   height: 54px;
-  background: rgba(15, 23, 42, 0.25); /* Lapisan gelap tipis agar navbar di atas foto tetap elegan */
 }
 .nav-brand {
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   text-decoration: none;
-  color: #ffffff;
+  color: #ffffff; 
 }
 .nav-links {
   display: flex;
@@ -120,25 +140,25 @@ body {
 @media (max-width: 767px) { .nav-links { display: none; } }
 
 .nav-a {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.85); 
   text-decoration: none;
   font-size: 0.875rem;
-  font-weight: 400;
+  font-weight: 500;
   transition: color 0.2s ease;
 }
 .nav-a:hover, .nav-a.active { color: #ffffff; }
 
 .nav-btn {
-  background: #ffffff;
-  color: #0f172a;
+  background: #ffffff; 
+  color: #3b587c; 
   padding: 8px 20px;
   border-radius: 8px;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   text-decoration: none;
   transition: background 0.2s ease;
 }
-.nav-btn:hover { background: #f8fafc; }
+.nav-btn:hover { background: #f1f5f9; }
 
 /* HERO LOWER COMPONENTS */
 .hero-bottom {
@@ -269,7 +289,7 @@ body {
 /* DASHBOARD AREA WITH THEME-MATCHED BACKGROUND */
 .dashboard-section {
   padding: 48px 16px;
-  background: #b8b8b8; /* SELARAS DENGAN WARNA BACKGROUND UTAMA ATAS */
+  background: #F1E3D6; 
 }
 @media (min-width: 768px) { .dashboard-section { padding: 48px; } }
 @media (min-width: 1024px) { .dashboard-section { padding: 48px 64px; } }
@@ -285,16 +305,21 @@ body {
 }
 @media (min-width: 768px) { .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-.stat-card {
+.stat-card, .card {
+  background: #91B9B6; 
   border-radius: 14px;
   padding: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  box-shadow: 0 4px 14px rgba(74, 112, 156, 0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
+.stat-card:hover, .card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(74, 112, 156, 0.3);
+}
+
 .stat-label {
   font-size: 0.75rem;
-  color: #475569; 
+  color: rgba(255, 255, 255, 0.85); 
   font-weight: 600;
   margin-bottom: 6px;
   text-transform: uppercase;
@@ -303,7 +328,7 @@ body {
 .stat-val {
   font-size: 1.6rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #ffffff; 
   line-height: 1;
 }
 
@@ -315,16 +340,12 @@ body {
 }
 @media (min-width: 1024px) { .grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-.card {
-  border-radius: 14px;
-  padding: 24px;
-}
-.card-title {
+.card-title, .sec-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 20px;
+  color: #ffffff; 
 }
+.sec-title { font-size: 1.1rem; }
 
 /* DATA TABLES MINIMALIST DESIGN */
 .tw { overflow-x: auto; }
@@ -332,20 +353,21 @@ table { width: 100%; border-collapse: collapse; }
 th {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #475569;
+  color: rgba(255, 255, 255, 0.9);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 14px 16px;
-  border-bottom: 2px solid rgba(15, 23, 42, 0.08);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
   text-align: left;
 }
 td {
   padding: 16px 16px;
   font-size: 0.875rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.04);
-  color: #334155;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff; 
 }
 tr:last-child td { border-bottom: none; }
+
 .badge {
   display: inline-block;
   padding: 4px 12px;
@@ -353,9 +375,9 @@ tr:last-child td { border-bottom: none; }
   font-size: 0.75rem;
   font-weight: 600;
 }
-.bs { background: rgba(16, 185, 129, 0.15); color: #065f46; }
-.bw { background: rgba(245, 158, 11, 0.15); color: #92400e; }
-.bd { background: rgba(239, 68, 68, 0.15); color: #991b1b; }
+.bs { background: rgba(255, 255, 255, 0.25); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.4); }
+.bw { background: #DFB868; color: #0f172a; } 
+.bd { background: rgba(239, 68, 68, 0.4); color: #ffffff; }
 
 .sec-head {
   display: flex;
@@ -363,16 +385,15 @@ tr:last-child td { border-bottom: none; }
   justify-content: space-between;
   margin-bottom: 20px;
 }
-.sec-title { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
-.sec-link { font-size: 0.85rem; color: #475569; text-decoration: none; }
-.sec-link:hover { color: #0f172a; }
+.sec-link { font-size: 0.85rem; color: rgba(255, 255, 255, 0.85); text-decoration: none; }
+.sec-link:hover { color: #ffffff; text-decoration: underline; }
 
-/* REFINED HIGH-END FOOTER */
 .footer {
-  background: rgba(15, 23, 42, 0.05);
-  color: #475569;
+  flex-shrink: 0; 
+  background: rgba(30, 41, 59, 0.1);
+  color: #475569; 
   padding: 32px 16px;
-  border-top: 1px solid rgba(15, 23, 42, 0.05);
+  border-top: 1px solid rgba(0, 0, 0, 0.05); 
 }
 @media (min-width: 768px) { .footer { padding: 32px 48px; } }
 @media (min-width: 1024px) { .footer { padding: 32px 64px; } }
@@ -380,10 +401,8 @@ tr:last-child td { border-bottom: none; }
 </head>
 <body>
 
-<!-- HERO SEGMENT PLATFORM -->
 <div class="hero-viewport">
   
-  <!-- TOP NAVBAR AREA -->
   <div class="nav-container">
     <nav class="nav-bar liquid-glass">
       <a class="nav-brand" href="<?= BASE_URL ?>/index.php">SITANGKIS</a>
@@ -397,13 +416,11 @@ tr:last-child td { border-bottom: none; }
     </nav>
   </div>
 
-  <!-- HERO ANCHOR ROW -->
   <div class="hero-bottom">
     <div class="hero-left-col">
       <h1 id="animated-heading">Transparansi Dana Desa</h1>
       <p id="subheading">Sistem Informasi Transparansi Anggaran Keuangan Keuangan Pendapatan dan Belanja Desa</p>
       
-      <!-- FORM PENCARIAN -->
       <form class="hero-search-box" id="search-engine" action="<?= BASE_URL ?>/pages/laporan.php" method="GET">
         <input type="text" name="cari" placeholder="Cari laporan kegiatan, kategori, atau APBD Desa...">
         <button type="submit">Cari</button>
@@ -424,24 +441,22 @@ tr:last-child td { border-bottom: none; }
 
 </div>
 
-<!-- DATA TRANSITIONAL CORE DASHBOARD -->
 <div class="dashboard-section">
   
-  <!-- REAL-TIME DATA CARDS MODULE -->
   <div class="stat-grid">
-    <div class="stat-card liquid-glass">
+    <div class="stat-card">
       <div>
-        <div class="stat-label">Total Anggaran Desa</div>
-        <div class="stat-val"><?= rupiah($totalAnggaran ?: ($desa['total_apbdes'] ?? 0)) ?></div>
+        <div class="stat-label">Total Dana Masuk (Disetujui)</div>
+        <div class="stat-val"><?= rupiah($totalAnggaran) ?></div>
       </div>
     </div>
-    <div class="stat-card liquid-glass">
+    <div class="stat-card">
       <div>
         <div class="stat-label">Total Realisasi (Selesai)</div>
         <div class="stat-val"><?= rupiah($totalRealisasi) ?></div>
       </div>
     </div>
-    <div class="stat-card liquid-glass">
+    <div class="stat-card">
       <div>
         <div class="stat-label">Serapan Anggaran</div>
         <div class="stat-val"><?= $serapan ?>%</div>
@@ -449,20 +464,18 @@ tr:last-child td { border-bottom: none; }
     </div>
   </div>
 
-  <!-- CHART CONFIGURATION -->
   <div class="grid2">
-    <div class="card liquid-glass">
-      <div class="card-title">Alokasi Anggaran per Sektor</div>
+    <div class="card">
+      <div class="card-title">Grafik Komparasi Dana Sektor (Masuk vs Belanja)</div>
       <div style="height:260px; position: relative;"><canvas id="barChart"></canvas></div>
     </div>
-    <div class="card liquid-glass">
-      <div class="card-title">Sumber Pendapatan Desa</div>
+    <div class="card">
+      <div class="card-title">Komposisi Makro Sumber Pendapatan</div>
       <div style="height:260px; position: relative;"><canvas id="pieChart"></canvas></div>
     </div>
   </div>
 
-  <!-- FINANCIAL REPORT DATATABLE WITH LIGHT LIQUID-GLASS -->
-  <div class="card liquid-glass">
+  <div class="card">
     <div class="sec-head">
       <span class="sec-title">Pengeluaran Terbaru — Desa Ampang Pulai</span>
       <a class="sec-link" href="<?= BASE_URL ?>/pages/laporan.php">Lihat semua →</a>
@@ -485,7 +498,7 @@ tr:last-child td { border-bottom: none; }
           </tr>
           <?php endforeach; ?>
           <?php if(empty($recent)): ?>
-          <tr><td colspan="5" style="text-align:center;padding:32px;color:#475569">Belum ada data laporan publik.</td></tr>
+          <tr><td colspan="5" style="text-align:center;padding:32px;color:rgba(255, 255, 255, 0.8)">Belum ada data laporan publik.</td></tr>
           <?php endif; ?>
         </tbody>
       </table>
@@ -496,13 +509,12 @@ tr:last-child td { border-bottom: none; }
 <footer class="footer">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
     <div>
-      <strong style="color:#0f172a;">SITANGKIS</strong> — Desa Ampang Pulai
-      <p style="font-size:0.8rem; margin-top:4px;">© <?= date('Y') ?> Pemerintah Desa Ampang Pulai. Kelompok 6 — 4A Informatika UNSIKA.</p>
+      <strong style="color:#475569;">SITANGKIS</strong> — Desa Ampang Pulai
+      <p style="font-size:0.8rem; margin-top:4px; color: #64748b;">© 2026 Pemerintah Desa Ampang Pulai. Kelompok 6 — 4A Informatika UNSIKA.</p>
     </div>
   </div>
 </footer>
 
-<!-- SYSTEM ENGINES -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   const heading = document.getElementById("animated-heading");
@@ -562,70 +574,51 @@ document.addEventListener("DOMContentLoaded", function() {
   }, 1400);
 });
 
-/* RE-COLOR DIAGRAM SYSTEM: ADAPTIVE PROFESSIONAL LIGHT CONTRAST */
-new Chart(document.getElementById('barChart'),{
-  type:'bar',
-  data:{
-    labels:<?= json_encode(array_column($barData,'kategori')) ?>,
-    datasets:[
-      {
-        label:'Anggaran',
-        data:<?= json_encode(array_map(fn($r)=>(int)$r['anggaran'],$barData)) ?>,
-        backgroundColor:'rgba(71, 85, 105, 0.2)', 
-        borderColor: '#64748b',
-        borderWidth: 1,
-        borderRadius: 5
+const commonFont = { family: 'Inter', size: 12, weight: '500' };
+
+new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: {
+    labels: <?= json_encode(array_column($barData, 'kategori')) ?>,
+    datasets: [
+      { 
+        label: 'Dana Masuk (Pagu)', 
+        data: <?= json_encode(array_map(fn($r) => (int)$r['anggaran'], $barData)) ?>, 
+        backgroundColor: '#1a3a6b', 
+        borderRadius: 4 
       },
-      {
-        label:'Realisasi',
-        data:<?= json_encode(array_map(fn($r)=>(int)$r['realisasi'],$barData)) ?>,
-        backgroundColor:'#0f766e', 
-        borderRadius: 5
+      { 
+        label: 'Uang Keluar (Realisasi)', 
+        data: <?= json_encode(array_map(fn($r) => (int)$r['realisasi'], $barData)) ?>, 
+        backgroundColor: '#2a9d8f', 
+        borderRadius: 4 
       }
     ]
   },
-  options:{
-    responsive:true,
-    maintainAspectRatio:false,
-    plugins:{
-      legend:{
-        labels:{color:'#334155', font:{family:'Inter', size:12, weight:'600'}},
-        position:'bottom'
-      }
-    },
-    scales:{
-      y:{
-        ticks:{color:'#475569', font:{family:'Inter'}, callback:v=>'Rp '+(v/1e6)+'jt'},
-        grid:{color:'rgba(15, 23, 42, 0.06)'}
-      },
-      x:{
-        ticks:{color:'#475569', font:{family:'Inter'}},
-        grid:{display:false}
-      }
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: '#ffffff', font: commonFont }, position: 'bottom' } },
+    scales: {
+      y: { ticks: { color: '#ffffff', font: { family: 'Inter' }, callback: v => 'Rp ' + (v/1e6) + 'jt' }, grid: { color: 'rgba(255, 255, 255, 0.2)' } },
+      x: { ticks: { color: '#ffffff', font: { family: 'Inter' } }, grid: { display: false } }
     }
   }
 });
 
-new Chart(document.getElementById('pieChart'),{
-  type:'doughnut',
-  data:{
-    labels:<?= json_encode(array_column($pieRows,'sumber')) ?>,
-    datasets:[{
-      data:<?= json_encode(array_map(fn($r)=>(int)$r['jumlah'],$pieRows)) ?>,
-      backgroundColor:['#0284c7','#0f766e','#e11d48','#ea580c'], 
-      borderWidth: 0
+new Chart(document.getElementById('pieChart'), {
+  type: 'doughnut',
+  data: {
+    labels: <?= json_encode(array_column($pieRows, 'sumber')) ?>,
+    datasets: [{ 
+      data: <?= json_encode(array_map(fn($r) => (int)$r['jumlah'], $pieRows)) ?>, 
+      backgroundColor: ['#FFAE34', '#FF6B6B', '#2a9d8f', '#4a90e2', '#8a56f2', '#f15bb5'], 
+      borderWidth: 0 
     }]
   },
-  options:{
-    responsive:true,
-    maintainAspectRatio:false,
-    plugins:{
-      legend:{
-        labels:{color:'#334155', font:{family:'Inter', size:12, weight:'600'}},
-        position:'bottom'
-      }
-    },
-    cutout:'72%'
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: '#ffffff', font: commonFont }, position: 'bottom' } },
+    cutout: '72%'
   }
 });
 </script>

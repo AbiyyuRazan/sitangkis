@@ -9,16 +9,20 @@ $db = getDB();
 $tahunDipilih = isset($_GET['tahun']) ? (int)$_GET['tahun'] : (int)date('Y');
 $desa = $db->query("SELECT * FROM desa_info LIMIT 1")->fetch();
 
-// 1. DATA GRAFIK BATANG (ANGGARAN VS REALISASI)
-$barStmt = $db->prepare("SELECT a.kategori, a.jumlah AS anggaran, COALESCE(SUM(r.jumlah),0) AS realisasi
-  FROM anggaran a LEFT JOIN realisasi r ON r.kategori=a.kategori AND r.status='Selesai' AND YEAR(r.tanggal)=?
-  WHERE a.tahun=? GROUP BY a.kategori, a.jumlah");
+// 1. DATA GRAFIK BATANG (ANGGARAN MASUK VS REALISASI BELANJA) — SINKRON DENGAN DATA VALID ADMIN
+// FIXED BUG DOUBLE KATEGORI: Menggunakan SUM(a.jumlah) dan GROUP BY murni pada a.kategori
+$barStmt = $db->prepare(
+  "SELECT a.kategori, SUM(a.jumlah) AS anggaran, 
+   COALESCE((SELECT SUM(r.jumlah) FROM realisasi r WHERE r.kategori = a.kategori AND r.status = 'Selesai' AND YEAR(r.tanggal) = ?), 0) AS realisasi
+   FROM anggaran a
+   WHERE a.tahun=? AND a.is_validasi = 1 GROUP BY a.kategori"
+);
 $barStmt->execute([$tahunDipilih, $tahunDipilih]);
 $barData = $barStmt->fetchAll();
 
-// 2. DATA GRAFIK PIE (SUMBER PENDAPATAN)
-$pieStmt = $db->prepare("SELECT sumber, jumlah FROM sumber_pendapatan WHERE tahun=:tahun");
-$pieStmt->execute(['tahun' => $tahunDipilih]);
+// 2. DATA GRAFIK PIE (KOMPOSISI MAKRO SUMBER PENDAPATAN) — MENGIKUTI DATABASE DINAMIS DANA MASUK VALID
+$pieStmt = $db->prepare("SELECT nama_program AS sumber, jumlah FROM anggaran WHERE tahun=? AND is_validasi = 1");
+$pieStmt->execute([$tahunDipilih]);
 $pieRows = $pieStmt->fetchAll();
 
 // 3. DATA TREN REALISASI BULANAN
@@ -83,21 +87,22 @@ body {
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #b8b8b8; /* BACKGROUND MATTE GREY SESUAI LAPORAN PUBLIK */
-  color: #ffffff; /* FONT DIUBAH MENJADI PUTIH AGAR KONTRAS TINGGI DI ATAS KACA ABU KEBIRUAN */
+  background: #F1E3D6; 
+  color: #ffffff; 
   display: flex;
   flex-direction: column;
 }
 
-/* MASTER THEME: SLATE STEEL BLUE GLASS (SENADA DENGAN IMAGE_3CDA7C.JPG) */
+/* MASTER THEME: ABU GLOSSY LIQUID GLASS */
 .liquid-glass {
   background: rgba(85, 116, 153, 0.75); 
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: none;
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.1);
   position: relative;
   overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 .liquid-glass::before {
   content: '';
@@ -136,7 +141,7 @@ body {
   font-weight: 700;
   letter-spacing: -0.03em;
   text-decoration: none;
-  color: #ffffff;
+  color: #FFFF; 
 }
 .nav-links {
   display: flex;
@@ -146,7 +151,7 @@ body {
 @media (max-width: 767px) { .nav-links { display: none; } }
 
 .nav-a {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.85); 
   text-decoration: none;
   font-size: 0.875rem;
   font-weight: 500;
@@ -155,14 +160,16 @@ body {
 .nav-a:hover, .nav-a.active { color: #ffffff; }
 
 .nav-btn {
-  background: #ffffff;
-  color: #3b587c;
+  background: #ffffff; 
+  color: #3b587c; 
   padding: 8px 20px;
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 600;
   text-decoration: none;
+  transition: background 0.2s ease;
 }
+.nav-btn:hover { background: #f1f5f9; }
 
 /* CONTENT CONTAINER */
 .content-wrapper {
@@ -184,19 +191,18 @@ body {
 .page-title-box h1 {
   font-size: 2rem;
   font-weight: 700;
-  color: #1e293b; /* Abu-abu gelap elegan agar judul pop-out */
+  color: #475569; 
   letter-spacing: -0.03em;
   margin-bottom: 4px;
 }
 .page-title-box p {
   font-size: 0.9rem;
-  color: #475569;
+  color: #475569; 
 }
 
 .filter-select {
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: #ffffff; 
+  border: 1px solid #cbd5e1;
   padding: 8px 16px;
   border-radius: 8px;
   color: #0f172a;
@@ -205,10 +211,13 @@ body {
   font-weight: 600;
   outline: none;
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  transition: background 0.2s;
 }
+.filter-select:hover { background: #f1f5f9; }
 .filter-select option {
-  background: #557499;
-  color: #ffffff;
+  background: #ffffff;
+  color: #0f172a;
 }
 
 /* CHARTS LAYOUT SYSTEM */
@@ -221,15 +230,23 @@ body {
 @media (min-width: 768px) { .charts-main-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .chart-card {
+  background: #91B9B6; 
   border-radius: 14px;
   padding: 24px;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 4px 14px rgba(74, 112, 156, 0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
+.chart-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(74, 112, 156, 0.3);
+}
+
 .chart-card-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #ffffff;
+  color: #ffffff; 
   margin-bottom: 20px;
 }
 .chart-container-box {
@@ -238,7 +255,7 @@ body {
   position: relative;
 }
 
-/* INSIGHT TEXT AREA (PENJELASAN DINAMIS BEBAS EMOJI) */
+/* INSIGHT TEXT AREA */
 .insight-box {
   margin-top: auto;
   padding-top: 16px;
@@ -281,8 +298,9 @@ body {
 }
 .progress-bar-fill {
   height: 100%;
-  background: #ffffff; 
+  background: #DFB868; 
   border-radius: 20px;
+  transition: width 0.4s ease;
 }
 .progress-subtext {
   display: flex;
@@ -295,9 +313,9 @@ body {
 .footer {
   flex-shrink: 0; 
   background: rgba(30, 41, 59, 0.1);
-  color: #475569;
+  color: #ffffff; 
   padding: 32px 16px;
-  border-top: 1px solid rgba(15, 23, 42, 0.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.1); 
 }
 @media (min-width: 768px) { .footer { padding: 32px 48px; } }
 @media (min-width: 1024px) { .footer { padding: 32px 64px; } }
@@ -341,7 +359,7 @@ body {
 
   <div class="charts-main-grid">
     
-    <div class="chart-card liquid-glass">
+    <div class="chart-card">
       <h2 class="chart-card-title">Anggaran vs Realisasi per Sektor</h2>
       <div class="chart-container-box">
         <canvas id="barChart"></canvas>
@@ -352,8 +370,8 @@ body {
       </div>
     </div>
 
-    <div class="chart-card liquid-glass">
-      <h2 class="chart-card-title">Komposisi Sumber Pendapatan</h2>
+    <div class="chart-card">
+      <h2 class="chart-card-title">Komposisi Makro Sumber Pendapatan</h2>
       <div class="chart-container-box">
         <canvas id="pieChart"></canvas>
       </div>
@@ -363,7 +381,7 @@ body {
       </div>
     </div>
 
-    <div class="chart-card liquid-glass">
+    <div class="chart-card">
       <h2 class="chart-card-title">Tren Realisasi Bulanan <?= $tahunDipilih ?></h2>
       <div class="chart-container-box">
         <canvas id="lineChart"></canvas>
@@ -374,7 +392,7 @@ body {
       </div>
     </div>
 
-    <div class="chart-card liquid-glass">
+    <div class="chart-card">
       <h2 class="chart-card-title">Serapan Anggaran per Sektor</h2>
       <div style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
         <?php foreach($serapanData as $s): ?>
@@ -415,7 +433,7 @@ body {
 <footer class="footer">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;">
     <div>
-      <strong style="color:#1e293b;">SITANGKIS</strong> — Desa Ampang Pulai
+      <strong style="color:#ffffff;">SITANGKIS</strong> — Desa Ampang Pulai
       <p style="font-size:0.8rem; margin-top:4px;">© 2026 Pemerintah Desa Ampang Pulai. Kelompok 6 — 4A Informatika UNSIKA.</p>
     </div>
   </div>
@@ -428,22 +446,22 @@ const barRawData = <?= json_encode($barData) ?>;
 const pieRawData = <?= json_encode($pieRows) ?>;
 const lineRawData = <?= json_encode(array_values($bulanan)) ?>;
 
-// 1. ENGINE BAR CHART (Diselaraskan dengan warna kontras asli fungsional dashboard saat ini)
+// 1. ENGINE BAR CHART (SINKRON DATA SEKTOR UNIK)
 new Chart(document.getElementById('barChart'), {
   type: 'bar',
   data: {
     labels: <?= json_encode(array_column($barData, 'kategori')) ?>,
     datasets: [
       { 
-        label: 'Anggaran', 
+        label: 'Anggaran Masuk (Pagu)', 
         data: <?= json_encode(array_map(fn($r) => (int)$r['anggaran'], $barData)) ?>, 
-        backgroundColor: '#1a3a6b', // DEEP NAVY ASLI
+        backgroundColor: '#1a3a6b', 
         borderRadius: 4 
       },
       { 
-        label: 'Realisasi', 
+        label: 'Realisasi Keluar', 
         data: <?= json_encode(array_map(fn($r) => (int)$r['realisasi'], $barData)) ?>, 
-        backgroundColor: '#2a9d8f', // TEAL ASLI
+        backgroundColor: '#2a9d8f', 
         borderRadius: 4 
       }
     ]
@@ -458,14 +476,14 @@ new Chart(document.getElementById('barChart'), {
   }
 });
 
-// 2. ENGINE PIE CHART (Warna Fungsional Dashboard Saat Ini)
+// 2. ENGINE PIE CHART (SINKRON DENGAN SUMBER PENDAPATAN DATABASE)
 new Chart(document.getElementById('pieChart'), {
   type: 'doughnut',
   data: {
     labels: <?= json_encode(array_column($pieRows, 'sumber')) ?>,
     datasets: [{ 
       data: <?= json_encode(array_map(fn($r) => (int)$r['jumlah'], $pieRows)) ?>, 
-      backgroundColor: ['#1a3a6b', '#2a9d8f', '#f4a261', '#e63946'], // NAVY, TEAL, ORANGE, CORAL ASLI
+      backgroundColor: ['#FFAE34', '#FF6B6B', '#2a9d8f', '#4a90e2', '#8a56f2', '#f15bb5'], 
       borderWidth: 0 
     }]
   },
@@ -476,7 +494,7 @@ new Chart(document.getElementById('pieChart'), {
   }
 });
 
-// 3. ENGINE LINE CHART (Warna Fungsional Dashboard Saat Ini)
+// 3. ENGINE LINE CHART
 new Chart(document.getElementById('lineChart'), {
   type: 'line',
   data: {
@@ -502,7 +520,7 @@ new Chart(document.getElementById('lineChart'), {
   }
 });
 
-// INSIGHT GENERATOR DINAMIS (BEBAS EMOJI)
+// INSIGHT GENERATOR DINAMIS
 document.addEventListener("DOMContentLoaded", function() {
   if (barRawData.length > 0) {
     let tertinggi = barRawData.reduce((max, p) => parseInt(p.anggaran) > parseInt(max.anggaran) ? p : max, barRawData[0]);

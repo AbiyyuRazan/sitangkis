@@ -8,7 +8,8 @@ $adminTitle = 'Dashboard';
 $db   = getDB();
 $year = date('Y');
 
-$totalAnggaran  = (int)$db->query("SELECT SUM(jumlah) FROM anggaran WHERE tahun=$year")->fetchColumn();
+// SINKRONISASI MAKRO KAS: Total dana masuk hanya membaca Pagu yang sudah disetujui Kades
+$totalAnggaran  = (int)$db->query("SELECT SUM(jumlah) FROM anggaran WHERE tahun=$year AND is_validasi=1")->fetchColumn();
 $totalRealisasi = (int)$db->query("SELECT SUM(jumlah) FROM realisasi WHERE YEAR(tanggal)=$year AND status='Selesai'")->fetchColumn();
 $serapan        = $totalAnggaran > 0 ? round(($totalRealisasi / $totalAnggaran) * 100, 1) : 0;
 $totalTx        = (int)$db->query("SELECT COUNT(*) FROM realisasi WHERE YEAR(tanggal)=$year")->fetchColumn();
@@ -20,18 +21,33 @@ $recent = $db->query(
    ORDER BY r.created_at DESC LIMIT 6"
 )->fetchAll();
 
-$barStmt = $db->prepare(
-  "SELECT a.kategori, a.jumlah AS anggaran, COALESCE(SUM(r.jumlah),0) AS realisasi
-   FROM anggaran a
-   LEFT JOIN realisasi r ON r.kategori=a.kategori AND r.status='Selesai' AND YEAR(r.tanggal)=?
-   WHERE a.tahun=? GROUP BY a.kategori, a.jumlah"
-);
-$barStmt->execute([$year,$year]);
-$barData = $barStmt->fetchAll();
+$barData = [];
+try {
+    // FIXED BUG DOUBLE KATEGORI: Menggunakan SUM(a.jumlah) dan GROUP BY murni pada a.kategori
+    $barStmt = $db->prepare(
+      "SELECT a.kategori, SUM(a.jumlah) AS anggaran, 
+       COALESCE((SELECT SUM(r.jumlah) FROM realisasi r WHERE r.kategori = a.kategori AND r.status = 'Selesai' AND YEAR(r.tanggal) = ?), 0) AS realisasi
+       FROM anggaran a
+       WHERE a.tahun=? GROUP BY a.kategori"
+    );
+    $barStmt->execute([$year,$year]);
+    $barData = $barStmt->fetchAll();
+} catch (Exception $e) {
+    $barData = [];
+}
 
-$pieRows = $db->prepare("SELECT sumber, jumlah FROM sumber_pendapatan WHERE tahun=?");
-$pieRows->execute([$year]);
-$pieData = $pieRows->fetchAll();
+// SINKRONISASI GRAFIK LINGKARAN: Mengambil data nama program (Sumber Dana) dinamis dari alokasi dana masuk yang valid
+$pieData = [];
+try {
+    $pieRows = $db->prepare("SELECT nama_program AS sumber, jumlah FROM anggaran WHERE tahun=? AND is_validasi=1");
+    $pieRows->execute([$year]);
+    $pieData = $pieRows->fetchAll();
+} catch (Exception $e) {
+    $pieData = [];
+}
+
+// Menghitung jumlah pagu masuk yang baru diajukan bendahara dan belum divalidasi kades
+$menungguPagu = (int)$db->query("SELECT COUNT(*) FROM anggaran WHERE is_validasi=0")->fetchColumn();
 
 $user = currentUser();
 $roleLabel = ['bendahara'=>'Bendahara Desa','sekdes'=>'Sekretaris Desa','kades'=>'Kepala Desa'];
@@ -44,150 +60,243 @@ $avatar = strtoupper(substr($user['nama'], 0, 2));
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard — <?= APP_NAME ?> Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Icons+Round&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+
 <style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Plus Jakarta Sans',sans-serif;background:#f4f6fb;color:#1a2332;min-height:100vh;display:flex}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: #FFF9F1; 
+  color: #1E2229;
+  min-height: 100vh;
+  display: flex;
+}
 
-/* SIDEBAR */
-.sidebar{width:240px;background:#1a3a6b;min-height:100vh;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sb-top{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
-.sb-logo{display:flex;align-items:center;gap:10px}
-.sb-logo-icon{width:36px;height:36px;background:#e63946;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0}
-.sb-logo-text{font-weight:800;font-size:1.05rem;color:#fff}
-.sb-logo-sub{font-size:.62rem;color:rgba(255,255,255,.4);margin-top:1px}
-.sb-nav{flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:2px}
-.sb-link{display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:10px;color:rgba(255,255,255,.65);text-decoration:none;font-size:.875rem;font-weight:500;transition:all .18s}
-.sb-link:hover{background:rgba(255,255,255,.08);color:#fff}
-.sb-link.active{background:rgba(255,255,255,.15);color:#fff;font-weight:700}
-.sb-link span{font-size:1rem;flex-shrink:0}
-.sb-divider{height:1px;background:rgba(255,255,255,.08);margin:8px 0}
-.sb-foot{padding:12px}
-.sb-user{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.07)}
-.sb-avatar{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;flex-shrink:0}
-.sb-uname{font-size:.8rem;font-weight:600;color:#fff}
-.sb-urole{font-size:.68rem;color:rgba(255,255,255,.45)}
+/* SIDEBAR RE-DESIGN */
+.sidebar {
+  width: 80px; 
+  background: #FFAE34; 
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  box-shadow: 4px 0 20px rgba(243, 230, 211, 0.4);
+  align-items: center; 
+}
+.sb-top {
+  padding: 24px 0 16px;
+  width: 100%;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+.sb-logo-text { 
+  font-weight: 800; 
+  font-size: 0.85rem; 
+  color: #1E2229;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
 
-/* MAIN */
-.main{margin-left:240px;flex:1;display:flex;flex-direction:column;min-height:100vh}
-.topbar{background:#fff;padding:0 32px;height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e8edf5;position:sticky;top:0;z-index:50}
-.topbar-left h2{font-size:1.15rem;font-weight:800;color:#1a2332}
-.topbar-left p{font-size:.78rem;color:#8896ab;margin-top:1px}
-.topbar-right{display:flex;align-items:center;gap:12px}
-.notif-btn{width:38px;height:38px;border-radius:10px;background:#f4f6fb;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;position:relative}
-.notif-dot{width:8px;height:8px;background:#e63946;border-radius:50%;position:absolute;top:8px;right:8px;border:2px solid #fff}
-.top-avatar{width:38px;height:38px;border-radius:50%;background:#1a3a6b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem}
+.sb-nav { 
+  flex: 1; 
+  padding: 20px 0; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 8px; 
+  width: 100%;
+  align-items: center;
+}
+.sb-link {
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: rgba(30, 34, 41, 0.7); 
+  text-decoration: none;
+  transition: all .2s ease;
+}
+.sb-link .material-icons-round { font-size: 1.4rem; color: rgba(30, 34, 41, 0.75); }
+.sb-link:hover { background: rgba(255, 255, 255, 0.2); color: #1E2229; }
+.sb-link.active {
+  background: #FF6B6B; 
+  color: #FFFFFF;
+  position: relative;
+}
+.sb-link.active .material-icons-round { color: #FFFFFF; }
+.sb-link.active::after {
+  content: '';
+  position: absolute;
+  right: -16px; top: 50%;
+  transform: translateY(-50%);
+  border-style: solid;
+  border-width: 6px 6px 6px 0;
+  border-color: transparent #FFF9F1 transparent transparent;
+}
+.sb-divider { width: 70%; height: 1px; background: rgba(255, 255, 255, 0.2); margin: 8px 0; }
+.sb-foot { padding: 20px 0; width: 100%; display: flex; justify-content: center; }
 
-/* BODY */
-.body{padding:28px 32px;flex:1}
+.sb-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: #FFFFFF; color: #1E2229;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: .85rem;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+/* MAIN AREA ADJUSTMENT */
+.main { margin-left: 80px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+.topbar {
+  padding: 0 40px; height: 80px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: transparent;
+}
+.topbar-left h2 { font-size: 2rem; font-weight: 800; color: #1E2229; letter-spacing: -0.03em; }
+.topbar-left p { font-size: .78rem; color: #FF6B6B; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; margin-top: 2px; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+
+.notif-btn {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: #FFFFFF; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #1E2229; position: relative;
+  box-shadow: 0 4px 12px rgba(243, 230, 211, 0.3);
+}
+.notif-dot {
+  width: 8px; height: 8px; background: #FF6B6B;
+  border-radius: 50%; position: absolute; top: 10px; right: 10px;
+  border: 2px solid #fff;
+}
+.top-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: #FFAE34; color: #1E2229;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: .85rem;
+}
+
+/* BODY CONTAINER */
+.body { padding: 12px 40px 40px 40px; flex: 1; }
 
 /* STAT CARDS */
-.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:28px}
-.stat-card{background:#fff;border-radius:16px;padding:22px 24px;border:1px solid #e8edf5;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.stat-info{}
-.stat-label{font-size:.78rem;color:#8896ab;font-weight:500;margin-bottom:6px}
-.stat-val{font-size:1.5rem;font-weight:800;color:#1a2332;line-height:1}
-.stat-icon-wrap{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0}
-.si-blue{background:#dbeafe}
-.si-green{background:#d1fae5}
-.si-orange{background:#fff3e0}
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px; }
+.stat-card {
+  background: #FFFFFF; border-radius: 20px;
+  padding: 24px 28px; border: none;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 10px 30px rgba(243, 230, 211, 0.4);
+  transition: transform 0.2s;
+}
+.stat-card:hover { transform: translateY(-3px); }
+.stat-label { font-size: .78rem; color: #8A929A; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.stat-val { font-size: 1.6rem; font-weight: 800; color: #1E2229; line-height: 1; letter-spacing: -0.02em; }
+.stat-icon-wrap {
+  width: 48px; height: 48px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.si-blue { background: #FFF3E5; color: #FFAE34; }
+.si-green { background: #E6F7F4; color: #2a9d8f; }
+.si-orange { background: #FFF0F0; color: #FF6B6B; }
 
-/* ALERT VALIDASI */
-.alert-validasi{background:#fff8e1;border:1px solid #fde68a;border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:14px}
-.alert-validasi .av-icon{font-size:1.4rem;flex-shrink:0}
-.alert-validasi .av-text{flex:1}
-.alert-validasi .av-title{font-weight:700;font-size:.92rem;color:#92400e}
-.alert-validasi .av-sub{font-size:.8rem;color:#a16207;margin-top:2px}
-.alert-validasi a{background:#f59e0b;color:#fff;padding:8px 16px;border-radius:8px;font-size:.8rem;font-weight:700;text-decoration:none;flex-shrink:0}
+/* ALERT VALIDASI KADES */
+.alert-validasi {
+  background: #FFF0F0; border: 1px solid #FFE1E1;
+  border-radius: 16px; padding: 16px 24px; margin-bottom: 32px;
+  display: flex; align-items: center; gap: 16px;
+}
+.av-text { flex: 1; }
+.av-title { font-weight: 700; font-size: .92rem; color: #E85555; }
+.av-sub { font-size: .8rem; color: #8A929A; margin-top: 2px; font-weight: 500; margin-bottom: 12px; }
+.alert-validasi a {
+  background: #FF6B6B; color: #fff; padding: 10px 20px;
+  border-radius: 10px; font-size: .8rem; font-weight: 700;
+  text-decoration: none; flex-shrink: 0; transition: background 0.2s;
+}
 
-/* GRID 2 */
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+/* LAYOUT STRUCTURE GRID */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 32px; }
 
-/* CARD */
-.card{background:#fff;border-radius:16px;padding:24px;border:1px solid #e8edf5;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
-.card-title{font-size:.9rem;font-weight:700;color:#1a2332}
-.card-link{font-size:.78rem;color:#2451a3;text-decoration:none;font-weight:600}
+/* KARTU KOMPONEN */
+.card {
+  background: #FFFFFF; border-radius: 20px;
+  padding: 28px; border: none;
+  box-shadow: 0 10px 30px rgba(243, 230, 211, 0.4);
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.card-title { font-size: 1.05rem; font-weight: 800; color: #1E2229; letter-spacing: -0.02em; }
+.card-link { font-size: .82rem; color: #FF6B6B; text-decoration: none; font-weight: 700; }
 
-/* TABLE */
-.tw{overflow-x:auto}
-table{width:100%;border-collapse:collapse}
-th{font-size:.72rem;font-weight:700;color:#8896ab;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;border-bottom:2px solid #f0f4f8;text-align:left;white-space:nowrap}
-td{padding:12px 14px;font-size:.85rem;border-bottom:1px solid #f4f6fb;color:#1a2332}
-tr:last-child td{border-bottom:none}
-tbody tr:hover td{background:#f9fafc}
-.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap}
-.bs{background:#d1fae5;color:#065f46}
-.bw{background:#fff3e0;color:#9a3412}
-.bd{background:#fee2e2;color:#991b1b}
-.bi{background:#dbeafe;color:#1e40af}
-.publik-yes{font-size:.9rem}
-.action-btns{display:flex;gap:5px}
-.btn-sm{display:inline-flex;align-items:center;padding:5px 11px;border-radius:7px;font-size:.75rem;font-weight:600;cursor:pointer;text-decoration:none;border:none;font-family:inherit}
-.btn-edit{background:#eff6ff;color:#1d4ed8}
-.btn-del{background:#fef2f2;color:#dc2626}
+/* MINIMALIST DATA TABLE */
+.tw { overflow-x: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
+th {
+  font-size: .75rem; font-weight: 700; color: #8A929A;
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 10px 14px; text-align: left;
+}
+td { padding: 16px 14px; font-size: .88rem; background-color: #FFFDF9; color: #1E2229; }
+td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
 
-/* PROGRESS */
-.prog-item{margin-bottom:16px}
-.prog-head{display:flex;justify-content:space-between;margin-bottom:5px}
-.prog-label{font-size:.83rem;font-weight:600;color:#1a2332}
-.prog-pct{font-size:.83rem;font-weight:700;color:#2451a3}
-.prog-bar{height:8px;background:#f0f4f8;border-radius:99px;overflow:hidden}
-.prog-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#1a3a6b,#2451a3)}
-.prog-amt{display:flex;justify-content:space-between;font-size:.72rem;color:#8896ab;margin-top:3px}
+/* STATUS BADGE */
+.badge { display: inline-block; padding: 4px 12px; border-radius: 10px; font-size: .75rem; font-weight: 700; }
+.bs { background: #E6F7F4; color: #2a9d8f; } 
+.bw { background: #FFF3E5; color: #FFAE34; } 
+.bd { background: #FFF0F0; color: #FF6B6B; } 
 
-@media(max-width:900px){
-  .sidebar{transform:translateX(-100%)}
-  .main{margin-left:0}
-  .stat-grid,.grid2{grid-template-columns:1fr}
-  .body{padding:20px}
+/* PROGRESS BAR SERAPAN */
+.prog-item { margin-bottom: 20px; }
+.prog-item:last-child { margin-bottom: 0; }
+.prog-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.prog-label { font-size: .88rem; font-weight: 700; color: #1E2229; }
+.prog-pct { font-size: .88rem; font-weight: 800; color: #FF6B6B; }
+.prog-bar { height: 8px; background: #FFF9F0; border-radius: 20px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 20px; background: #FFAE34; }
+.prog-amt { display: flex; justify-content: space-between; font-size: .75rem; color: #8A929A; margin-top: 4px; font-weight: 600; }
+
+@media(max-width:1024px){
+  .sidebar { transform: translateX(-100%); }
+  .main { margin-left: 0; }
+  .stat-grid,.grid2 { grid-template-columns: 1fr; }
+  .body { padding: 24px; }
 }
 </style>
 </head>
 <body>
 
-<!-- SIDEBAR -->
 <aside class="sidebar">
-  <div class="sb-top">
-    <div class="sb-logo">
-      <div class="sb-logo-icon">🏛️</div>
-      <div><div class="sb-logo-text"><?= APP_NAME ?></div><div class="sb-logo-sub">Admin Panel</div></div>
-    </div>
-  </div>
+  <div class="sb-top"><div class="sb-logo-text">STK</div></div>
   <nav class="sb-nav">
-    <a class="sb-link active" href="<?= BASE_URL ?>/admin/index.php"><span>📊</span> Dashboard</a>
-    <?php if(hasRole(['bendahara','sekdes'])): ?>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/kelola_anggaran.php"><span>📋</span> Kelola Anggaran</a>
-    <?php endif; ?>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/realisasi_dana.php"><span>💸</span> Realisasi Dana</a>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/laporan.php"><span>📄</span> Laporan Publik</a>
+    <a class="sb-link active" href="<?= BASE_URL ?>/admin/index.php" title="Dashboard"><span class="material-icons-round">space_dashboard</span></a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/kelola_anggaran.php" title="Kelola Anggaran"><span class="material-icons-round">assignment</span></a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/realisasi_dana.php" title="Realisasi Dana"><span class="material-icons-round">payments</span></a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/laporan.php" title="Laporan Publik"><span class="material-icons-round">description</span></a>
     <?php if(hasRole(['sekdes','kades'])): ?>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/grafik.php"><span>📈</span> Grafik</a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/grafik.php" title="Grafik"><span class="material-icons-round">insert_chart</span></a>
     <?php endif; ?>
     <div class="sb-divider"></div>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/pengaturan.php"><span>⚙️</span> Pengaturan</a>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/logout.php"><span>🚪</span> Keluar</a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/pengaturan.php" title="Pengaturan"><span class="material-icons-round">settings</span></a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/logout.php" title="Keluar"><span class="material-icons-round">logout</span></a>
   </nav>
-  <div class="sb-foot">
-    <div class="sb-user">
-      <div class="sb-avatar"><?= $avatar ?></div>
-      <div><div class="sb-uname"><?= htmlspecialchars($user['nama']) ?></div><div class="sb-urole"><?= $roleDisplay ?></div></div>
-    </div>
-  </div>
+  <div class="sb-foot"><div class="sb-avatar"><?= $avatar ?></div></div>
 </aside>
 
-<!-- MAIN -->
 <div class="main">
-  <!-- TOPBAR -->
   <header class="topbar">
     <div class="topbar-left">
-      <h2>Dashboard</h2>
+      <h2>Sitangkis Dashboard</h2>
       <p>Selamat datang, <?= htmlspecialchars($user['nama']) ?> — <?= date('l, d F Y') ?></p>
     </div>
     <div class="topbar-right">
-      <?php if($menunggu > 0): ?>
-      <button class="notif-btn" title="<?= $menunggu ?> menunggu validasi">🔔<span class="notif-dot"></span></button>
+      <?php if(($menunggu > 0 || $menungguPagu > 0) && hasRole('kades')): ?>
+      <button class="notif-btn" title="Ada transaksi/pagu membutuhkan validasi">
+        <span class="material-icons-round">notifications</span><span class="notif-dot"></span>
+      </button>
       <?php endif; ?>
       <div class="top-avatar"><?= $avatar ?></div>
     </div>
@@ -195,88 +304,96 @@ tbody tr:hover td{background:#f9fafc}
 
   <div class="body">
 
-    <!-- STAT CARDS -->
     <div class="stat-grid">
       <div class="stat-card">
         <div class="stat-info">
-          <div class="stat-label">Total Anggaran <?= $year ?></div>
+          <div class="stat-label">Total Dana Masuk (Disetujui) <?= $year ?></div>
           <div class="stat-val"><?= rupiah($totalAnggaran) ?></div>
         </div>
-        <div class="stat-icon-wrap si-blue">💼</div>
+        <div class="stat-icon-wrap si-blue"><span class="material-icons-round">business_center</span></div>
       </div>
       <div class="stat-card">
         <div class="stat-info">
-          <div class="stat-label">Total Realisasi</div>
+          <div class="stat-label">Total Realisasi Keluar</div>
           <div class="stat-val"><?= rupiah($totalRealisasi) ?></div>
         </div>
-        <div class="stat-icon-wrap si-green">📈</div>
+        <div class="stat-icon-wrap si-green"><span class="material-icons-round">trending_up</span></div>
       </div>
       <div class="stat-card">
         <div class="stat-info">
-          <div class="stat-label">Serapan Anggaran</div>
+          <div class="stat-label">Efisiensi Serapan Dana</div>
           <div class="stat-val"><?= $serapan ?>%</div>
         </div>
-        <div class="stat-icon-wrap si-orange">🎯</div>
+        <div class="stat-icon-wrap si-orange"><span class="material-icons-round">track_changes</span></div>
       </div>
     </div>
 
-    <!-- NOTIF VALIDASI -->
-    <?php if($menunggu > 0 && hasRole('kades')): ?>
-    <div class="alert-validasi">
-      <div class="av-icon">⚠️</div>
-      <div class="av-text">
-        <div class="av-title"><?= $menunggu ?> Realisasi Menunggu Validasi Anda</div>
-        <div class="av-sub">Silakan tinjau dan validasi agar dapat dipublikasikan ke masyarakat</div>
+    <?php if(hasRole('kades')): ?>
+      <?php if($menungguPagu > 0): ?>
+      <div class="alert-validasi" style="background: #E6F7F4; border-color: #CEF3EC; margin-bottom:16px;">
+        <div class="av-icon"><span class="material-icons-round" style="color: #2a9d8f">gavel</span></div>
+        <div class="av-text">
+          <div class="av-title" style="color:#2a9d8f"><?= $menungguPagu ?> Pagu Dana Masuk Menunggu Validasi</div>
+          <div class="av-sub">Tinjau rancangan plafon pendapatan desa sebelum dikunci ke sistem keuangan.</div>
+        </div>
+        <a href="<?= BASE_URL ?>/admin/kelola_anggaran.php" style="background:#2a9d8f">Tinjau Pagu</a>
       </div>
-      <a href="<?= BASE_URL ?>/admin/realisasi_dana.php">Tinjau →</a>
-    </div>
+      <?php endif; ?>
+
+      <?php if($menunggu > 0): ?>
+      <div class="alert-validasi">
+        <div class="av-icon"><span class="material-icons-round" style="color: #FF6B6B">warning</span></div>
+        <div class="av-text">
+          <div class="av-title"><?= $menunggu ?> Nota Realisasi Belanja Menunggu Validasi Anda</div>
+          <div class="av-sub">Silakan validasi bukti pengeluaran agar dapat didistribusikan ke laporan publik.</div>
+        </div>
+        <a href="<?= BASE_URL ?>/admin/realisasi_dana.php">Tinjau Belanja</a>
+      </div>
+      <?php endif; ?>
     <?php endif; ?>
 
-    <!-- CHARTS -->
     <div class="grid2">
       <div class="card">
-        <div class="card-head">
-          <span class="card-title">Anggaran vs Realisasi per Sektor</span>
-        </div>
-        <div style="height:240px"><canvas id="barChart"></canvas></div>
+        <div class="card-head"><span class="card-title">Grafik Komparasi Dana Sektor (Masuk vs Belanja)</span></div>
+        <div style="height:240px; position: relative;"><canvas id="barChart"></canvas></div>
       </div>
       <div class="card">
-        <div class="card-head">
-          <span class="card-title">Sumber Pendapatan</span>
-        </div>
-        <div style="height:240px"><canvas id="pieChart"></canvas></div>
+        <div class="card-head"><span class="card-title">Komposisi Makro Sumber Pendapatan</span></div>
+        <div style="height:240px; position: relative;"><canvas id="pieChart"></canvas></div>
       </div>
     </div>
 
-    <!-- SERAPAN + TABEL -->
     <div class="grid2">
       <div class="card">
-        <div class="card-head"><span class="card-title">Serapan per Sektor</span></div>
+        <div class="card-head"><span class="card-title">Progress Penyerapan Saldo Sektor</span></div>
         <?php foreach($barData as $c):
           $pct = $c['anggaran']>0 ? round(($c['realisasi']/$c['anggaran'])*100,1) : 0;
         ?>
         <div class="prog-item">
-          <div class="prog-head"><span class="prog-label"><?= $c['kategori'] ?></span><span class="prog-pct"><?= $pct ?>%</span></div>
+          <div class="prog-head">
+            <span class="prog-label"><?= $c['kategori'] ?></span>
+            <span class="prog-pct"><?= $pct ?>%</span>
+          </div>
           <div class="prog-bar"><div class="prog-fill" style="width:<?= min($pct,100) ?>%"></div></div>
-          <div class="prog-amt"><span><?= rupiah($c['realisasi']) ?></span><span><?= rupiah($c['anggaran']) ?></span></div>
+          <div class="prog-amt"><span>Keluar: <?= rupiah($c['realisasi']) ?></span><span>Pagu: <?= rupiah($c['anggaran']) ?></span></div>
         </div>
         <?php endforeach; ?>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <span class="card-title">Transaksi Terbaru</span>
+          <span class="card-title">Daftar Pengeluaran Belanja Terbaru</span>
           <a class="card-link" href="<?= BASE_URL ?>/admin/realisasi_dana.php">Lihat semua →</a>
         </div>
         <div class="tw">
           <table>
-            <thead><tr><th>Kegiatan</th><th>Jumlah</th><th>Status</th></tr></thead>
+            <thead><tr><th>Kegiatan Belanja</th><th>Jumlah</th><th>Status</th></tr></thead>
             <tbody>
               <?php foreach($recent as $r):
                 $bc=['Selesai'=>'bs','Proses'=>'bw','Batal'=>'bd'];
               ?>
               <tr>
-                <td><?= htmlspecialchars(mb_strimwidth($r['nama_kegiatan'],0,30,'…')) ?></td>
+                <td><strong><?= htmlspecialchars(mb_strimwidth($r['nama_kegiatan'],0,28,'…')) ?></strong></td>
                 <td><?= rupiah($r['jumlah']) ?></td>
                 <td><span class="badge <?= $bc[$r['status']]??'bi' ?>"><?= $r['status'] ?></span></td>
               </tr>
@@ -287,22 +404,67 @@ tbody tr:hover td{background:#f9fafc}
       </div>
     </div>
 
-  </div><!-- /body -->
-</div><!-- /main -->
-
+  </div></div>
 <script>
-new Chart(document.getElementById('barChart'),{type:'bar',data:{
-  labels:<?= json_encode(array_column($barData,'kategori')) ?>,
-  datasets:[
-    {label:'Anggaran',data:<?= json_encode(array_map(fn($r)=>(int)$r['anggaran'],$barData)) ?>,backgroundColor:'#bfdbfe',borderRadius:6},
-    {label:'Realisasi',data:<?= json_encode(array_map(fn($r)=>(int)$r['realisasi'],$barData)) ?>,backgroundColor:'#1a3a6b',borderRadius:6}
-  ]
-},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{ticks:{callback:v=>'Rp'+(v/1e6)+'jt'},grid:{color:'#f4f6fb'}},x:{grid:{display:false}}}}});
+const commonFont = { family: 'Plus Jakarta Sans', size: 11, weight: '600' };
 
-new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{
-  labels:<?= json_encode(array_column($pieData,'sumber')) ?>,
-  datasets:[{data:<?= json_encode(array_map(fn($r)=>(int)$r['jumlah'],$pieData)) ?>,backgroundColor:['#1a3a6b','#2a9d8f','#f4a261'],borderWidth:3,borderColor:'#fff'}]
-},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},cutout:'65%'}});
+new Chart(document.getElementById('barChart'),{
+  type:'bar',
+  data:{
+    labels:<?= json_encode(array_column($barData,'kategori')) ?>,
+    datasets:[
+      {
+        label:'Dana Masuk (Pagu)',
+        data:<?= json_encode(array_map(fn($r)=>(int)$r['anggaran'], $barData)) ?>,
+        backgroundColor:'#FFF3E5', 
+        borderColor: '#FFAE34',   
+        borderWidth: 1.5,
+        barPercentage: 0.5,
+        categoryPercentage: 0.8,
+      },
+      {
+        label:'Uang Keluar (Realisasi)',
+        data:<?= json_encode(array_map(fn($r)=>(int)$r['realisasi'],$barData)) ?>,
+        backgroundColor:'#FF6B6B', 
+        barPercentage: 0.5,
+        categoryPercentage: 0.8,
+      }
+    ]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{ legend:{ labels:{ color:'#1E2229', font:commonFont }, position:'bottom' } },
+    scales:{
+      y:{ ticks:{ color:'#8A929A', font:{ family: 'Plus Jakarta Sans' }, callback:v=>'Rp '+(v/1e6)+'jt' }, grid:{ color:'#FFF9F0' } },
+      x:{ ticks:{ color:'#1E2229', font:commonFont }, grid:{ display:false } }
+    }
+  }
+});
+
+new Chart(document.getElementById('pieChart'),{
+  type:'doughnut',
+  data:{
+    labels: <?= json_encode(array_column($pieData, 'sumber')) ?>,
+    datasets:[{
+      data: <?= json_encode(array_map(fn($r)=>(int)$r['jumlah'], $pieData)) ?>,
+      backgroundColor:['#FFAE34','#FF6B6B','#2a9d8f','#4a90e2','#8a56f2','#f15bb5'], 
+      borderWidth: 4,
+      borderColor:'#ffffff'
+    }]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{ 
+      legend:{ 
+        labels:{ color:'#1E2229', font:commonFont }, 
+        position:'bottom' 
+      } 
+    },
+    cutout:'70%'
+  }
+});
 </script>
 </body>
 </html>

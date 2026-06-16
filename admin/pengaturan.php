@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'akun') 
         if ($cek->fetch()) {
             $errorAkun = 'Email sudah digunakan akun lain.';
         } else {
-            // Proses ganti password
+            // Process ganti password
             if ($passBaru !== '') {
                 $hashRow = $db->prepare("SELECT password FROM users WHERE id=?");
                 $hashRow->execute([$user['id']]);
@@ -86,177 +86,300 @@ $desa = $db->query("SELECT * FROM desa_info LIMIT 1")->fetch();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pengaturan — <?= APP_NAME ?> Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Icons+Round&display=swap" rel="stylesheet">
+
 <style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Plus Jakarta Sans',sans-serif;background:#f4f6fb;color:#1a2332;min-height:100vh;display:flex}
-.sidebar{width:240px;background:#1a3a6b;min-height:100vh;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sb-top{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
-.sb-logo{display:flex;align-items:center;gap:10px}
-.sb-logo-icon{width:36px;height:36px;background:#e63946;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0}
-.sb-logo-text{font-weight:800;font-size:1.05rem;color:#fff}
-.sb-logo-sub{font-size:.62rem;color:rgba(255,255,255,.4);margin-top:1px}
-.sb-nav{flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:2px}
-.sb-link{display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:10px;color:rgba(255,255,255,.65);text-decoration:none;font-size:.875rem;font-weight:500;transition:all .18s}
-.sb-link:hover{background:rgba(255,255,255,.08);color:#fff}
-.sb-link.active{background:rgba(255,255,255,.15);color:#fff;font-weight:700}
-.sb-divider{height:1px;background:rgba(255,255,255,.08);margin:8px 0}
-.sb-foot{padding:12px}
-.sb-user{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.07)}
-.sb-avatar{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;flex-shrink:0}
-.sb-uname{font-size:.8rem;font-weight:600;color:#fff}
-.sb-urole{font-size:.68rem;color:rgba(255,255,255,.45)}
-.main{margin-left:240px;flex:1;display:flex;flex-direction:column}
-.topbar{background:#fff;padding:0 32px;height:64px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e8edf5;position:sticky;top:0;z-index:50}
-.topbar h2{font-size:1.15rem;font-weight:800}
-.top-avatar{width:38px;height:38px;border-radius:50%;background:#1a3a6b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.82rem}
-.body{padding:28px 32px;max-width:760px}
-/* CARDS */
-.card{background:#fff;border-radius:16px;padding:28px;border:1px solid #e8edf5;box-shadow:0 1px 4px rgba(0,0,0,.04);margin-bottom:24px}
-.card-head{margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #f0f4f8}
-.card-head h3{font-size:1rem;font-weight:800;color:#1a2332;margin-bottom:3px}
-.card-head p{font-size:.8rem;color:#64748b}
-/* FORM */
-.fg{margin-bottom:16px}
-.fg label{display:block;font-size:.78rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px}
-.fg input,.fg select{width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:.9rem;font-family:inherit;outline:none;transition:all .2s;background:#fafbff;color:#1a2332}
-.fg input:focus,.fg select:focus{border-color:#1a3a6b;background:#fff;box-shadow:0 0 0 3px rgba(26,58,107,.07)}
-.fg input[readonly]{background:#f4f6fb;color:#94a3b8;cursor:not-allowed}
-.fg .hint{font-size:.73rem;color:#94a3b8;margin-top:4px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.full{grid-column:1/-1}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: #FFF9F1; 
+  color: #1E2229;
+  min-height: 100vh;
+  display: flex;
+}
+
+/* SIDEBAR RE-DESIGN */
+.sidebar {
+  width: 80px; 
+  background: #FFAE34; 
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  box-shadow: 4px 0 20px rgba(243, 230, 211, 0.4);
+  align-items: center; 
+}
+.sb-top {
+  padding: 24px 0 16px;
+  width: 100%;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+.sb-logo-text { 
+  font-weight: 800; 
+  font-size: 0.85rem; 
+  color: #1E2229;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.sb-nav { 
+  flex: 1; 
+  padding: 20px 0; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 8px; 
+  width: 100%;
+  align-items: center;
+}
+.sb-link {
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: rgba(30, 34, 41, 0.7); 
+  text-decoration: none;
+  transition: all .2s ease;
+}
+.sb-link .material-icons-round { font-size: 1.4rem; color: rgba(30, 34, 41, 0.75); }
+.sb-link:hover { background: rgba(255, 255, 255, 0.2); color: #1E2229; }
+.sb-link.active {
+  background: #FF6B6B; 
+  color: #FFFFFF;
+  position: relative;
+}
+.sb-link.active .material-icons-round { color: #FFFFFF; }
+.sb-link.active::after {
+  content: '';
+  position: absolute;
+  right: -16px; top: 50%;
+  transform: translateY(-50%);
+  border-style: solid;
+  border-width: 6px 6px 6px 0;
+  border-color: transparent #FFF9F1 transparent transparent;
+}
+.sb-divider { width: 70%; height: 1px; background: rgba(255, 255, 255, 0.2); margin: 8px 0; }
+.sb-foot { padding: 20px 0; width: 100%; display: flex; justify-content: center; }
+.sb-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: #FFFFFF; color: #1E2229;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: .85rem;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+/* MAIN AREA ADJUSTMENT */
+.main { margin-left: 80px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+.topbar {
+  padding: 0 40px; height: 80px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: transparent;
+}
+.topbar-left h2 { font-size: 2rem; font-weight: 800; color: #1E2229; letter-spacing: -0.03em; }
+.topbar-left p { font-size: .78rem; color: #FF6B6B; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; margin-top: 2px; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.top-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: #FFAE34; color: #1E2229;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: .85rem;
+}
+
+/* BODY CONTAINER */
+.body { padding: 12px 40px 40px 40px; flex: 1; max-width: 900px; }
+
+/* COMPONENT CARD */
+.card {
+  background: #FFFFFF; border-radius: 20px;
+  padding: 28px; border: none;
+  box-shadow: 0 10px 30px rgba(243, 230, 211, 0.4);
+  margin-bottom: 32px;
+}
+.card-head { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #FFF9F0; }
+.card-title { font-size: 1.05rem; font-weight: 800; color: #1E2229; letter-spacing: -0.02em; }
+.card-head p { font-size: .82rem; color: #8A929A; font-weight: 500; margin-top: 4px; }
+
+/* FORM FIELD STYLE */
+.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px; }
+.form-group.full { grid-column: span 2; }
+.form-group label { display: block; font-size: 0.85rem; font-weight: 700; color: #1E2229; margin-bottom: 8px; }
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%; padding: 14px 18px; border: 1.5px solid #F3E6D3;
+  background-color: #FFFDF9; border-radius: 12px; font-family: inherit;
+  font-size: 0.92rem; color: #1E2229; outline: none; transition: all 0.2s ease;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  border-color: #FFAE34; background-color: #FFFFFF; box-shadow: 0 0 0 4px rgba(255, 174, 52, 0.1);
+}
+.form-group input[readonly] { background-color: #FFF9F1; color: #8A929A; cursor: not-allowed; border-color: #F3E6D3; }
+.form-hint { font-size: 0.78rem; color: #8A929A; margin-top: 6px; font-weight: 500; }
+
 /* PASSWORD SECTION */
-.pass-section{background:#f8faff;border:1px solid #e0e8ff;border-radius:12px;padding:20px;margin-top:8px}
-.pass-section h4{font-size:.85rem;font-weight:700;color:#1a3a6b;margin-bottom:4px}
-.pass-section p{font-size:.78rem;color:#64748b;margin-bottom:16px}
-.pass-strength{height:5px;border-radius:99px;background:#e2e8f0;margin-top:6px;overflow:hidden}
-.pass-fill{height:100%;border-radius:99px;transition:all .3s}
-.pass-label{font-size:.72rem;margin-top:4px;font-weight:600}
-/* BUTTONS */
-.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:10px;font-size:.88rem;font-weight:700;cursor:pointer;transition:all .2s;border:none;font-family:inherit}
-.btn-primary{background:#1a3a6b;color:#fff}
-.btn-primary:hover{background:#2451a3}
-/* ALERT */
-.alert{padding:12px 16px;border-radius:10px;font-size:.85rem;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px}
-.alert-success{background:#d1fae5;color:#065f46}
-.alert-error{background:#fee2e2;color:#991b1b}
-/* BADGE ROLE */
-.role-badge{display:inline-block;padding:5px 14px;border-radius:20px;font-size:.78rem;font-weight:700;background:#dbeafe;color:#1e40af}
+.pass-section { background: #FFFDF9; border: 1.5px solid #F3E6D3; border-radius: 16px; padding: 24px; margin-top: 8px; }
+.pass-section h4 { font-size: .92rem; font-weight: 800; color: #1E2229; margin-bottom: 4px; }
+.pass-section p { font-size: .8rem; color: #8A929A; margin-bottom: 16px; font-weight: 500; }
+.pass-strength { height: 6px; border-radius: 20px; background: #FFF9F0; margin-top: 8px; overflow: hidden; }
+.pass-fill { height: 100%; border-radius: 20px; transition: all .3s ease; width: 0; }
+.pass-label { font-size: .78rem; margin-top: 6px; font-weight: 700; }
+
+/* ACTION BUTTONS MOCKUP */
+.btn-mockup-primary {
+  background: #FF6B6B; color: #FFFFFF; padding: 14px 28px;
+  border-radius: 12px; font-weight: 700; font-size: 0.92rem; border: none;
+  cursor: pointer; transition: all 0.2s ease; box-shadow: 0 6px 16px rgba(255, 107, 107, 0.25);
+}
+.btn-mockup-primary:hover { background: #E85555; transform: translateY(-1px); }
+
+/* ALERTS */
+.alert { padding: 14px 18px; border-radius: 12px; font-size: 0.88rem; font-weight: 600; margin-bottom: 24px; }
+.alert-success { background: #E6F7F4; border: 1px solid #CEF3EC; color: #2a9d8f; }
+.alert-error { background: #FFF0F0; border: 1px solid #FFE1E1; color: #FF6B6B; }
+
+@media(max-width:1024px){
+  .sidebar { transform: translateX(-100%); }
+  .main { margin-left: 0; }
+  .form-grid { grid-template-columns: 1fr; }
+  .body { padding: 24px; }
+}
 </style>
 </head>
 <body>
+
 <aside class="sidebar">
   <div class="sb-top">
-    <div class="sb-logo">
-      <div class="sb-logo-icon">🏛️</div>
-      <div><div class="sb-logo-text"><?= APP_NAME ?></div><div class="sb-logo-sub">Admin Panel</div></div>
-    </div>
+    <div class="sb-logo-text">STK</div>
   </div>
   <nav class="sb-nav">
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/index.php"><span>📊</span> Dashboard</a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/index.php" title="Dashboard">
+      <span class="material-icons-round">space_dashboard</span>
+    </a>
     <?php if(hasRole(['bendahara','sekdes'])): ?>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/kelola_anggaran.php"><span>📋</span> Kelola Anggaran</a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/kelola_anggaran.php" title="Kelola Anggaran">
+      <span class="material-icons-round">assignment</span>
+    </a>
     <?php endif; ?>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/realisasi_dana.php"><span>💸</span> Realisasi Dana</a>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/laporan.php"><span>📄</span> Laporan Publik</a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/realisasi_dana.php" title="Realisasi Dana">
+      <span class="material-icons-round">payments</span>
+    </a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/laporan.php" title="Laporan Publik">
+      <span class="material-icons-round">description</span>
+    </a>
     <?php if(hasRole(['sekdes','kades'])): ?>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/grafik.php"><span>📈</span> Grafik</a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/grafik.php" title="Grafik">
+      <span class="material-icons-round">insert_chart</span>
+    </a>
     <?php endif; ?>
     <div class="sb-divider"></div>
-    <a class="sb-link active" href="<?= BASE_URL ?>/admin/pengaturan.php"><span>⚙️</span> Pengaturan</a>
-    <a class="sb-link" href="<?= BASE_URL ?>/admin/logout.php"><span>🚪</span> Keluar</a>
+    <a class="sb-link active" href="<?= BASE_URL ?>/admin/pengaturan.php" title="Pengaturan">
+      <span class="material-icons-round">settings</span>
+    </a>
+    <a class="sb-link" href="<?= BASE_URL ?>/admin/logout.php" title="Keluar">
+      <span class="material-icons-round">logout</span>
+    </a>
   </nav>
   <div class="sb-foot">
-    <div class="sb-user">
-      <div class="sb-avatar"><?= $avatar ?></div>
-      <div><div class="sb-uname"><?= htmlspecialchars($user['nama']) ?></div><div class="sb-urole"><?= $roleDisplay ?></div></div>
-    </div>
+    <div class="sb-avatar" title="<?= htmlspecialchars($user['nama']) ?> (<?= $roleDisplay ?>)"><?= $avatar ?></div>
   </div>
 </aside>
 
 <div class="main">
   <header class="topbar">
-    <h2>⚙️ Pengaturan Akun</h2>
-    <div class="top-avatar"><?= $avatar ?></div>
+    <div class="topbar-left">
+      <h2><?= $adminTitle ?></h2>
+      <p>SITANGKIS — Konfigurasi Profil Pengguna & Informasi Instansi</p>
+    </div>
+    <div class="topbar-right">
+      <div class="top-avatar"><?= $avatar ?></div>
+    </div>
   </header>
+
   <div class="body">
 
-    <!-- FORM AKUN + PASSWORD -->
     <div class="card">
       <div class="card-head">
-        <h3>👤 Informasi Akun & Keamanan</h3>
-        <p>Perbarui data pribadi dan ganti password login Anda</p>
+        <span class="card-title">Informasi Akun & Keamanan</span>
+        <p>Perbarui data pribadi dan ganti password login Anda secara berkala</p>
       </div>
 
-      <?php if($successAkun): ?><div class="alert alert-success">✅ <?= htmlspecialchars($successAkun) ?></div><?php endif; ?>
-      <?php if($errorAkun):   ?><div class="alert alert-error">⚠️ <?= htmlspecialchars($errorAkun) ?></div><?php endif; ?>
+      <?php if($successAkun): ?><div class="alert alert-success">Selesai: <?= htmlspecialchars($successAkun) ?></div><?php endif; ?>
+      <?php if($errorAkun):   ?><div class="alert alert-error">Peringatan: <?= htmlspecialchars($errorAkun) ?></div><?php endif; ?>
 
       <form method="POST">
         <input type="hidden" name="form" value="akun">
-        <div class="grid2">
-          <div class="fg">
+        <div class="form-grid">
+          <div class="form-group">
             <label>Nama Lengkap</label>
             <input type="text" name="nama" value="<?= htmlspecialchars($userData['nama']) ?>" required>
           </div>
-          <div class="fg">
+          <div class="form-group">
             <label>Email / Username Login</label>
             <input type="email" name="email" value="<?= htmlspecialchars($userData['email']) ?>" required>
           </div>
-          <div class="fg">
-            <label>Role</label>
+          <div class="form-group">
+            <label>Role Operasional</label>
             <input type="text" value="<?= htmlspecialchars($roleDisplay) ?>" readonly>
-            <div class="hint">Role tidak dapat diubah sendiri. Hubungi administrator sistem.</div>
+            <div class="form-hint">Role tidak dapat diubah sendiri. Hubungi administrator sistem.</div>
           </div>
-          <div class="fg">
-            <label>Status Akun</label>
-            <input type="text" value="✅ Aktif" readonly>
+          <div class="form-group">
+            <label>Status Otentikasi</label>
+            <input type="text" value="Aktif / Terverifikasi" readonly>
           </div>
         </div>
 
-        <!-- GANTI PASSWORD -->
         <div class="pass-section">
-          <h4>🔐 Ganti Password</h4>
-          <p>Kosongkan semua field password jika tidak ingin menggantinya</p>
-          <div class="grid2">
-            <div class="fg full">
+          <h4>Ganti Password</h4>
+          <p>Kosongkan semua field password di bawah jika Anda tidak ingin menggantinya</p>
+          <div class="form-grid" style="margin-bottom: 0;">
+            <div class="form-group full">
               <label>Password Lama</label>
               <input type="password" name="pass_lama" id="passLama" placeholder="Masukkan password saat ini">
             </div>
-            <div class="fg">
+            <div class="form-group">
               <label>Password Baru</label>
               <input type="password" name="pass_baru" id="passBaru" placeholder="Min. 6 karakter" oninput="checkStrength(this.value)">
               <div class="pass-strength"><div class="pass-fill" id="passFill"></div></div>
-              <div class="pass-label" id="passLabel" style="color:#94a3b8">Masukkan password baru</div>
+              <div class="pass-label" id="passLabel" style="color:#8A929A">Masukkan password baru</div>
             </div>
-            <div class="fg">
+            <div class="form-group">
               <label>Konfirmasi Password Baru</label>
               <input type="password" name="pass_konfirmasi" id="passKonfirm" placeholder="Ulangi password baru" oninput="checkMatch()">
-              <div class="pass-label" id="matchLabel" style="color:#94a3b8"></div>
+              <div class="pass-label" id="matchLabel" style="color:#8A929A; min-height: 18px;"></div>
             </div>
           </div>
         </div>
 
-        <div style="margin-top:20px">
-          <button type="submit" class="btn btn-primary">💾 Simpan Perubahan Akun</button>
+        <div style="margin-top:24px">
+          <button type="submit" class="btn-mockup-primary">Simpan Perubahan Akun</button>
         </div>
       </form>
     </div>
 
-    <!-- FORM DESA (khusus kades/sekdes) -->
     <?php if(hasRole(['kades','sekdes'])): ?>
     <div class="card">
       <div class="card-head">
-        <h3>🏡 Informasi Desa</h3>
-        <p>Ubah data desa yang tampil di halaman publik</p>
+        <span class="card-title">Informasi Wilayah Desa</span>
+        <p>Ubah identitas kelolaan desa yang akan didistribusikan ke halaman publik masyarakat</p>
       </div>
-      <?php if($successDesa): ?><div class="alert alert-success">✅ <?= htmlspecialchars($successDesa) ?></div><?php endif; ?>
-      <?php if($errorDesa):   ?><div class="alert alert-error">⚠️ <?= htmlspecialchars($errorDesa) ?></div><?php endif; ?>
+      
+      <?php if($successDesa): ?><div class="alert alert-success">Selesai: <?= htmlspecialchars($successDesa) ?></div><?php endif; ?>
+      <?php if($errorDesa):   ?><div class="alert alert-error">Peringatan: <?= htmlspecialchars($errorDesa) ?></div><?php endif; ?>
+      
       <form method="POST">
         <input type="hidden" name="form" value="desa">
-        <div class="grid2">
-          <div class="fg"><label>Nama Desa</label><input type="text" name="nama_desa" value="<?= htmlspecialchars($desa['nama_desa']) ?>"></div>
-          <div class="fg"><label>Kepala Desa</label><input type="text" name="kepala_desa" value="<?= htmlspecialchars($desa['kepala_desa']) ?>"></div>
-          <div class="fg">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Nama Desa</label>
+            <input type="text" name="nama_desa" value="<?= htmlspecialchars($desa['nama_desa']) ?>">
+          </div>
+          <div class="form-group">
+            <label>Kepala Desa Aktif</label>
+            <input type="text" name="kepala_desa" value="<?= htmlspecialchars($desa['kepala_desa']) ?>">
+          </div>
+          <div class="form-group">
             <label>Tahun Anggaran Aktif</label>
             <select name="tahun_anggaran">
               <?php foreach([2026,2025,2024] as $y): ?>
@@ -264,9 +387,12 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#f4f6fb;color:#1a2332
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="fg"><label>Total APBDes (Rp)</label><input type="number" name="total_apbdes" value="<?= $desa['total_apbdes'] ?>"></div>
+          <div class="form-group">
+            <label>Total APBDes Pagu (Rp)</label>
+            <input type="number" name="total_apbdes" value="<?= $desa['total_apbdes'] ?>">
+          </div>
         </div>
-        <button type="submit" class="btn btn-primary">💾 Simpan Data Desa</button>
+        <button type="submit" class="btn-mockup-primary">Simpan Data Desa</button>
       </form>
     </div>
     <?php endif; ?>
@@ -278,7 +404,7 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:#f4f6fb;color:#1a2332
 function checkStrength(val) {
   const fill = document.getElementById('passFill');
   const label = document.getElementById('passLabel');
-  if (!val) { fill.style.width='0'; fill.style.background=''; label.textContent='Masukkan password baru'; label.style.color='#94a3b8'; return; }
+  if (!val) { fill.style.width='0'; fill.style.background=''; label.textContent='Masukkan password baru'; label.style.color='#8A929A'; return; }
   let score = 0;
   if (val.length >= 6)  score++;
   if (val.length >= 10) score++;
@@ -286,11 +412,11 @@ function checkStrength(val) {
   if (/[0-9]/.test(val)) score++;
   if (/[^A-Za-z0-9]/.test(val)) score++;
   const levels = [
-    {w:'20%', c:'#ef4444', t:'Sangat Lemah'},
-    {w:'40%', c:'#f97316', t:'Lemah'},
-    {w:'60%', c:'#eab308', t:'Cukup'},
-    {w:'80%', c:'#22c55e', t:'Kuat'},
-    {w:'100%',c:'#16a34a', t:'Sangat Kuat'},
+    {w:'20%', c:'#FF6B6B', t:'Sangat Lemah'},
+    {w:'40%', c:'#FFAE34', t:'Lemah'},
+    {w:'60%', c:'#FFAE34', t:'Cukup'},
+    {w:'80%', c:'#2a9d8f', t:'Kuat'},
+    {w:'100%',c:'#2a9d8f', t:'Sangat Kuat'},
   ];
   const lvl = levels[Math.min(score-1, 4)];
   fill.style.width = lvl.w;
@@ -298,13 +424,14 @@ function checkStrength(val) {
   label.textContent = lvl.t;
   label.style.color = lvl.c;
 }
+
 function checkMatch() {
   const baru = document.getElementById('passBaru').value;
   const konfirm = document.getElementById('passKonfirm').value;
   const label = document.getElementById('matchLabel');
   if (!konfirm) { label.textContent=''; return; }
-  if (baru === konfirm) { label.textContent='✅ Password cocok'; label.style.color='#16a34a'; }
-  else { label.textContent='❌ Password tidak cocok'; label.style.color='#ef4444'; }
+  if (baru === konfirm) { label.textContent='Password cocok'; label.style.color='#2a9d8f'; }
+  else { label.textContent='Password tidak cocok'; label.style.color='#FF6B6B'; }
 }
 </script>
 </body>
